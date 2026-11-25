@@ -28,6 +28,7 @@ import com.descargo.app.data.SubscriptionStore
 import com.descargo.app.engine.Tagger
 import com.descargo.app.engine.LongForm
 import com.descargo.app.engine.ImageGrab
+import com.descargo.app.data.Updater
 import com.descargo.app.player.PlayerController
 import java.io.File
 import com.descargo.app.engine.Tags
@@ -461,6 +462,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             moving = false
             message = "Movidos $ok archivos a Audio/Video" + if (failed > 0) " ($failed no se pudieron: ya no existen o falta permiso)" else ""
         }
+    }
+
+    // Self-update from GitHub releases
+    var update by mutableStateOf<Updater.Release?>(null)
+    var updateProgress by mutableStateOf<Int?>(null)
+        private set
+
+    fun checkForUpdate(manual: Boolean) {
+        val app = getApplication<Application>()
+        if (!manual && !Updater.dueForCheck(app)) return
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { Updater.check(app) }.getOrNull() }
+            if (r != null) update = r
+            else if (manual) message = "Tienes la última versión (${Updater.currentVersion(app)})"
+        }
+    }
+
+    fun installUpdate() {
+        val r = update ?: return
+        val app = getApplication<Application>()
+        updateProgress = 0
+        viewModelScope.launch {
+            val apk = withContext(Dispatchers.IO) { Updater.download(app, r) { p -> updateProgress = p } }
+            updateProgress = null
+            if (apk == null) {
+                message = "No se pudo descargar la actualización"
+                return@launch
+            }
+            update = null
+            Updater.install(app, apk)
+        }
+    }
+
+    init {
+        checkForUpdate(manual = false)
     }
 
     // Backup

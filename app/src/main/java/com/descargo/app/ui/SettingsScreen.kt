@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.os.Build
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.lazy.items
@@ -291,6 +292,17 @@ fun SettingsScreen(vm: MainViewModel) {
                 TextButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }) {
                     Text("Importar")
                 }
+            }
+        }
+
+        item { Section("Aplicación") }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Descargo ${com.descargo.app.data.Updater.currentVersion(LocalContext.current)}")
+                    Text("Busca versiones nuevas en GitHub una vez al día", style = MaterialTheme.typography.bodySmall, color = Muted)
+                }
+                TextButton(onClick = { vm.checkForUpdate(manual = true) }) { Text("Buscar") }
             }
         }
 

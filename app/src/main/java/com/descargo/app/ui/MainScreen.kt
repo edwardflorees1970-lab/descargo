@@ -70,6 +70,25 @@ fun MainScreen(vm: MainViewModel) {
         )
     }
 
+    vm.update?.let { r ->
+        AlertDialog(
+            onDismissRequest = { if (vm.updateProgress == null) vm.update = null },
+            title = { Text("Nueva versión ${r.version}") },
+            text = {
+                Column {
+                    vm.updateProgress?.let { Text("Descargando… $it%") }
+                        ?: Text(r.notes.ifBlank { "Hay una versión nueva de Descargo." }.take(800))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = vm::installUpdate, enabled = vm.updateProgress == null) {
+                    Text("Actualizar (${formatSize(r.sizeBytes)})", color = Primary)
+                }
+            },
+            dismissButton = { TextButton(onClick = { vm.update = null }, enabled = vm.updateProgress == null) { Text("Después") } },
+        )
+    }
+
     if (vm.pendingMove > 0) {
         AlertDialog(
             onDismissRequest = { vm.pendingMove = 0 },
