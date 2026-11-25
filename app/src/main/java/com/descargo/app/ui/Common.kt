@@ -202,7 +202,7 @@ private object ImageCache {
 }
 
 @Composable
-fun Thumb(url: String?, modifier: Modifier, fallback: String = "") {
+fun Thumb(url: String?, modifier: Modifier, fallback: String = "", fit: Boolean = false) {
     val img by produceState<ImageBitmap?>(null, url) {
         value = url?.let { withContext(Dispatchers.IO) { ImageCache.load(it) } }
     }
@@ -210,7 +210,7 @@ fun Thumb(url: String?, modifier: Modifier, fallback: String = "") {
         // Fade the picture in once it arrives instead of popping.
         Crossfade(img, animationSpec = tween(320), label = "thumb", modifier = Modifier.matchParentSize()) { i ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                if (i != null) Image(i, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                if (i != null) Image(i, null, contentScale = if (fit) ContentScale.Fit else ContentScale.Crop, modifier = Modifier.matchParentSize())
                 else if (fallback.isNotEmpty()) Text(fallback, color = Muted, fontSize = 12.sp)
             }
         }

@@ -184,6 +184,18 @@ object Engine {
 
     private const val PLAYLIST_LIMIT = 500
 
+    /** Photo posts: yt-dlp still reads the post's images even when there is no video. */
+    fun findImages(ctx: Context, url: String): ImageGrab.Found? = runCatching {
+        val resp = withNetworkRetry(attempts = 3) {
+            val req = baseRequest(ctx, url, playlist = true)
+            req.addOption("--ignore-no-formats-error")
+            req.addOption("--dump-single-json")
+            YoutubeDL.getInstance().execute(req, null, null)
+        }
+        val line = resp.out.lineSequence().lastOrNull { it.trimStart().startsWith("{") } ?: return null
+        ImageGrab.fromInfo(url, JSONObject(line))
+    }.onFailure { Log.w(TAG, "findImages failed: ${it.message?.take(200)}") }.getOrNull()
+
     /**
      * Some CDNs (TikTok especially) drop connections mid-response; the page fetch then fails with
      * "[SSL] record layer failure" / connection reset. A fresh attempt usually succeeds.
@@ -246,6 +258,8 @@ object Engine {
             raw.contains("Unable to resolve host", true) || raw.contains("getaddrinfo", true) ||
                 raw.contains("No address associated with hostname", true) ->
                 "Sin conexión o DNS caído. Revisa tu internet e intenta de nuevo."
+            isTransient(t as? Exception ?: Exception(raw)) ->
+                "La conexión se cortó varias veces. Revisa tu internet e intenta de nuevo."
             else -> line.take(240)
         }
     }

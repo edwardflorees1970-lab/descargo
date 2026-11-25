@@ -174,19 +174,38 @@ fun HomeScreen(vm: MainViewModel) {
             is UiState.PlaylistLoaded -> playlist(vm, s.info)
             is UiState.ImageLoaded -> {
                 item {
+                    val n = s.image.images.size
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        shape = MaterialTheme.shapes.large,
                         colors = CardDefaults.cardColors(containerColor = CardBg),
                     ) {
-                        Thumb(s.image.imageUrl, Modifier.fillMaxWidth().aspectRatio(1f))
+                        if (n > 1) LazyRow(
+                            contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(s.image.images) { u -> Thumb(u, Modifier.width(220.dp).aspectRatio(4f / 5f), fit = true) }
+                        }
+                        else Thumb(s.image.imageUrl, Modifier.fillMaxWidth().aspectRatio(4f / 5f), fit = true)
                         Column(Modifier.padding(12.dp)) {
                             Text(s.image.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("Imagen · ${s.image.site}", style = MaterialTheme.typography.bodySmall, color = Muted)
+                            Text(
+                                (if (n > 1) "$n fotos" else "Foto") + " · ${s.image.site}",
+                                style = MaterialTheme.typography.bodySmall, color = Muted,
+                            )
                         }
                     }
                 }
-                item { Note("Esta publicación es una foto. Se guarda en la carpeta «Imagenes» (solo la imagen principal; los carruseles no se pueden).") }
-                item { PrimaryButton("Descargar imagen", onClick = vm::downloadImage) }
+                item {
+                    Note(
+                        "Esta publicación es una foto" + (if (s.image.images.size > 1) "s (carrusel)" else "") +
+                            ". Se guarda en tamaño original en la carpeta «Imagenes». " +
+                            "Si tiene música de fondo, Instagram no la incluye en la foto."
+                    )
+                }
+                item {
+                    val n = s.image.images.size
+                    PrimaryButton(if (n > 1) "Descargar $n imágenes" else "Descargar imagen", onClick = vm::downloadImage)
+                }
             }
         }
 

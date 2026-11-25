@@ -157,39 +157,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val noVideo = listOf("No video", "Unsupported URL", "no formats", "There is no video", "Requested format")
             .any { m.contains(it, ignoreCase = true) }
         if (!noVideo) return null
-        return withContext(Dispatchers.IO) { ImageGrab.find(link) }?.let { UiState.ImageLoaded(it) }
+        val app = getApplication<Application>()
+        // yt-dlp gives the original photos; the page's preview image is a 640px centre crop on Instagram.
+        return withContext(Dispatchers.IO) { Engine.findImages(app, link) ?: ImageGrab.find(link) }
+            ?.let { UiState.ImageLoaded(it) }
     }
 
     fun downloadImage() {
         val img = (state as? UiState.ImageLoaded)?.image ?: return
         val app = getApplication<Application>()
+        val total = img.images.size
+        message = if (total > 1) "Descargando $total imágenes…" else null
         viewModelScope.launch {
-            val saved = withContext(Dispatchers.IO) {
-                val dir = File(app.cacheDir, "img").apply { mkdirs() }
-                val f = ImageGrab.download(img.imageUrl, dir, img.title) ?: return@withContext null
-                try {
-                    val size = f.length()
-                    Storage.publish(app, f, Kind.IMAGE, img.site) to size
-                } finally {
-                    f.delete()
-                }
-            }
-            if (saved == null) {
-                message = "No se pudo descargar la imagen"
-                return@launch
-            }
-            val (s, size) = saved
-            HistoryStore.add(
-                listOf(
-                    HistoryItem(
-                        id = java.util.UUID.randomUUID().toString(), url = img.pageUrl, title = img.title,
-                        thumbnail = img.imageUrl, site = img.site, kind = Kind.IMAGE, optionLabel = "Imagen",
-                        args = emptyList(), status = com.descargo.app.data.Status.DONE,
-                        uri = s.uri.toString(), mime = s.mime, fileName = s.name, sizeBytes = size,
+            var ok = 0
+            img.images.forEachIndexed { i, imageUrl ->
+                val name = if (total > 1) "${img.title} (${i + 1})" else img.title
+                val saved = withContext(Dispatchers.IO) {
+                    val dir = File(app.cacheDir, "img").apply { mkdirs() }
+                    val f = ImageGrab.download(imageUrl, dir, name) ?: return@withContext null
+                    try {
+                        val size = f.length()
+                        Storage.publish(app, f, Kind.IMAGE, img.site) to size
+                    } finally {
+                        f.delete()
+                    }
+                } ?: return@forEachIndexed
+                val (s, size) = saved
+                ok++
+                HistoryStore.add(
+                    listOf(
+                        HistoryItem(
+                            id = java.util.UUID.randomUUID().toString(), url = img.pageUrl, title = name,
+                            thumbnail = imageUrl, site = img.site, kind = Kind.IMAGE, optionLabel = "Imagen",
+                            args = emptyList(), status = com.descargo.app.data.Status.DONE,
+                            uri = s.uri.toString(), mime = s.mime, fileName = s.name, sizeBytes = size,
+                        )
                     )
                 )
-            )
-            message = "Imagen guardada en ${Storage.describeTarget(Kind.IMAGE)}"
+            }
+            message = when {
+                ok == 0 -> "No se pudo descargar la imagen"
+                ok < total -> "Se guardaron $ok de $total imágenes en ${Storage.describeTarget(Kind.IMAGE)}"
+                total > 1 -> "$total imágenes guardadas en ${Storage.describeTarget(Kind.IMAGE)}"
+                else -> "Imagen guardada en ${Storage.describeTarget(Kind.IMAGE)}"
+            }
         }
     }
 
