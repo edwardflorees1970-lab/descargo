@@ -82,7 +82,7 @@ fun MainScreen(vm: MainViewModel) {
             },
             confirmButton = {
                 TextButton(onClick = vm::installUpdate, enabled = vm.updateProgress == null) {
-                    Text("Actualizar (${formatSize(r.sizeBytes)})", color = Primary)
+                    Text("Actualizar (${formatSize(r.sizeBytes)})")
                 }
             },
             dismissButton = { TextButton(onClick = { vm.update = null }, enabled = vm.updateProgress == null) { Text("Después") } },
