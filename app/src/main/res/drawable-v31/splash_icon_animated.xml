@@ -2,33 +2,24 @@
 <animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:drawable="@drawable/splash_icon">
-    <!-- disc pops in -->
-    <target android:name="disc">
+    <!-- the play falls in and lands with a bounce -->
+    <target android:name="play">
         <aapt:attr name="android:animation">
             <set>
-                <objectAnimator android:propertyName="scaleX" android:valueFrom="0.6" android:valueTo="1"
-                    android:duration="420" android:interpolator="@android:anim/overshoot_interpolator" />
-                <objectAnimator android:propertyName="scaleY" android:valueFrom="0.6" android:valueTo="1"
-                    android:duration="420" android:interpolator="@android:anim/overshoot_interpolator" />
+                <objectAnimator android:propertyName="translateY" android:valueFrom="-34" android:valueTo="0"
+                    android:duration="700" android:interpolator="@android:anim/bounce_interpolator" />
+                <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1"
+                    android:duration="420" android:interpolator="@android:anim/decelerate_interpolator" />
+                <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1"
+                    android:duration="420" android:interpolator="@android:anim/decelerate_interpolator" />
             </set>
         </aapt:attr>
     </target>
-    <!-- arrow drops into the tray -->
-    <target android:name="arrow">
+    <!-- the sound wave draws itself left to right -->
+    <target android:name="wave">
         <aapt:attr name="android:animation">
-            <set>
-                <objectAnimator android:propertyName="translateY" android:valueFrom="-18" android:valueTo="0"
-                    android:duration="760"
-                    android:interpolator="@android:anim/bounce_interpolator" />
-            </set>
-        </aapt:attr>
-    </target>
-    <!-- tray widens -->
-    <target android:name="tray">
-        <aapt:attr name="android:animation">
-            <objectAnimator android:propertyName="scaleX" android:valueFrom="0.3" android:valueTo="0.62"
-                android:duration="480"
-                android:interpolator="@android:anim/decelerate_interpolator" />
+            <objectAnimator android:propertyName="trimPathEnd" android:valueFrom="0" android:valueTo="1"
+                android:duration="760" android:interpolator="@android:anim/accelerate_decelerate_interpolator" />
         </aapt:attr>
     </target>
 </animated-vector>

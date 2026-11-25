@@ -139,23 +139,31 @@ private val AppShapes = Shapes(
 /** Coral → red → berry, same as the launcher icon. */
 val BrandGradient = Brush.linearGradient(listOf(Color(0xFFFF7A59), Color(0xFFE5484D), Color(0xFF9B1B5A)))
 
-/** The app mark (arrow dropping into a tray on the brand gradient), drawn so it scales crisply. */
+/** The app mark (a play falling onto a sound wave), drawn so it scales crisply. */
 @Composable
 fun BrandMark(size: Dp, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(BrandGradient)) {
-        val u = this.size.minDimension / 108f
-        val arrow = Path().apply {
-            moveTo(54 * u, 31 * u); lineTo(54 * u, 59 * u)
-            moveTo(42 * u, 48 * u); lineTo(54 * u, 60 * u); lineTo(66 * u, 48 * u)
+    Canvas(modifier.size(size).clip(RoundedCornerShape(size * 0.28f)).background(Color(0xFF16181F))) {
+        // Same geometry as the launcher icon (108-unit grid, scaled up a bit around the centre).
+        val k = this.size.minDimension / 108f
+        fun x(v: Float) = (54f + (v - 54f) * 0.92f) * k
+        val tri = Path().apply { moveTo(x(33f), x(30f)); lineTo(x(75f), x(30f)); lineTo(x(54f), x(64f)); close() }
+        val grad = Brush.linearGradient(
+            listOf(Color(0xFFFF7A59), Color(0xFFE5484D), Color(0xFF9B1B5A)),
+            start = androidx.compose.ui.geometry.Offset(x(27f), x(24f)),
+            end = androidx.compose.ui.geometry.Offset(x(81f), x(70f)),
+        )
+        drawPath(tri, grad)
+        drawPath(tri, grad, style = Stroke(width = 12f * 0.92f * k, join = StrokeJoin.Round))
+        val wave = Path().apply {
+            moveTo(x(26f), x(82f))
+            var px = 26f
+            var up = true
+            repeat(6) {
+                quadraticTo(x(px + 5f), x(if (up) 74f else 90f), x(px + 10f), x(82f))
+                px += 10f; up = !up
+            }
         }
-        val tray = Path().apply {
-            moveTo(35 * u, 63 * u); lineTo(35 * u, 69 * u)
-            quadraticTo(35 * u, 77 * u, 43 * u, 77 * u); lineTo(65 * u, 77 * u)
-            quadraticTo(73 * u, 77 * u, 73 * u, 69 * u); lineTo(73 * u, 63 * u)
-        }
-        val st = { w: Float -> Stroke(width = w * u, cap = StrokeCap.Round, join = StrokeJoin.Round) }
-        drawPath(arrow, Color.White, style = st(8f))
-        drawPath(tray, Color.White, style = st(7f))
+        drawPath(wave, Color.White, style = Stroke(width = 5f * 0.92f * k, cap = StrokeCap.Round))
     }
 }
 
