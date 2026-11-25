@@ -123,14 +123,18 @@ object Engine {
         CHANNEL_ROOT.find(url)?.let { it.groupValues[1] + "/videos" } ?: url
 
     /** Options that depend on current settings, applied when a download actually starts. */
-    fun runtimeArgs(kind: Kind, url: String): List<Pair<String, String?>> = buildList {
+    fun runtimeArgs(kind: Kind, url: String, spoken: Boolean = false): List<Pair<String, String?>> = buildList {
         val s = AppSettings.current
+        if (s.normalize && (kind == Kind.MP3 || kind == Kind.FLAC)) {
+            // EBU R128 loudness so every track plays at a similar volume.
+            add("--postprocessor-args" to "ExtractAudio:-af loudnorm=I=-16:TP=-1.5:LRA=11")
+        }
         if (s.rateLimit.isNotBlank()) add("--limit-rate" to s.rateLimit)
         if (isYouTube(url) && s.sponsorBlock) {
             add("--sponsorblock-remove" to "sponsor,selfpromo,interaction")
         }
         if (s.chapters && (kind == Kind.VIDEO || kind == Kind.ORIGINAL)) add("--embed-chapters" to null)
-        if (s.splitArtist && kind != Kind.VIDEO) {
+        if (s.splitArtist && kind.isAudio && !spoken) {
             // "Artista - Canción" → artist + title tags (no-op when the title has no " - ").
             add("--parse-metadata" to "title:%(artist)s - %(title)s")
         }

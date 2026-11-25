@@ -30,6 +30,9 @@ object Storage {
         "mp3" -> "audio/mpeg"
         "mp4" -> "video/mp4"
         "webm" -> "video/webm"
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "webp" -> "image/webp"
         else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
     }
 
@@ -81,7 +84,13 @@ object Storage {
         true
     }.getOrDefault(false)
 
-    fun subDirName(kind: Kind) = if (kind == Kind.VIDEO) VIDEO_DIR else AUDIO_DIR
+    const val IMAGE_DIR = "Imagenes"
+
+    fun subDirName(kind: Kind) = when (kind) {
+        Kind.VIDEO -> VIDEO_DIR
+        Kind.IMAGE -> IMAGE_DIR
+        else -> AUDIO_DIR
+    }
 
     /** True if [uri] already lives inside the chosen folder. */
     fun isInTree(ctx: Context, uri: Uri): Boolean {
@@ -140,6 +149,7 @@ object Storage {
         val s = AppSettings.current
         val base = when {
             s.folderMode == FolderMode.MEDIA && kind == Kind.VIDEO -> Environment.DIRECTORY_MOVIES
+            s.folderMode == FolderMode.MEDIA && kind == Kind.IMAGE -> Environment.DIRECTORY_PICTURES
             s.folderMode == FolderMode.MEDIA -> Environment.DIRECTORY_MUSIC
             else -> Environment.DIRECTORY_DOWNLOADS
         }
@@ -159,6 +169,37 @@ object Storage {
         "$b/" + if (AppSettings.current.bySite) s.substringBefore('/') + "/<sitio>" else s
     }
 
+    /** Saves a small text file (audiobook/podcast index) next to the media. Best effort. */
+    fun publishText(ctx: Context, name: String, text: String, kind: Kind, site: String): Boolean = runCatching {
+        val tmp = File(ctx.cacheDir, name)
+        tmp.writeText(text)
+        try {
+            val root = treeRoot(ctx)
+            if (root != null) {
+                publishToTree(ctx, root, tmp, kind, site)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Music/Movies collections reject text, so notes always go under Download.
+                val (base, sub) = target(kind, site)
+                val path = if (base == Environment.DIRECTORY_DOWNLOADS) "$base/$sub" else Environment.DIRECTORY_DOWNLOADS + "/" + sub
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, path)
+                }
+                val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+                ctx.contentResolver.openOutputStream(uri)!!.use { it.write(text.toByteArray()) }
+            } else {
+                @Suppress("DEPRECATION")
+                val dir = File(Environment.getExternalStoragePublicDirectory(target(kind, site).first), target(kind, site).second)
+                dir.mkdirs()
+                File(dir, name).writeText(text)
+            }
+            true
+        } finally {
+            tmp.delete()
+        }
+    }.getOrDefault(false)
+
     suspend fun publish(ctx: Context, file: File, kind: Kind, site: String): Saved {
         treeRoot(ctx)?.let { root -> return publishToTree(ctx, root, file, kind, site) }
         val mime = mimeOf(file)
@@ -168,6 +209,7 @@ object Storage {
             val collection = when (base) {
                 Environment.DIRECTORY_MUSIC -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
                 Environment.DIRECTORY_MOVIES -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                Environment.DIRECTORY_PICTURES -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                 else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
             }
             val values = ContentValues().apply {

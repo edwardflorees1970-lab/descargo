@@ -19,6 +19,10 @@ import com.descargo.app.data.AppSettings
 import com.descargo.app.data.HistoryStore
 import com.descargo.app.data.Status
 import com.descargo.app.engine.Engine
+import com.descargo.app.engine.Kind
+import com.descargo.app.engine.MusicInfo
+import com.descargo.app.engine.Tagger
+import com.descargo.app.engine.Tags
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -86,7 +90,7 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         // Not wiped on start: a resumed download continues from the .part files left here.
         val tmp = DownloadQueue.tmpDir(ctx, hid)
         tmp.mkdirs()
-        val args = DownloadQueue.decode(item.args) + Engine.runtimeArgs(item.kind, item.url)
+        val args = DownloadQueue.decode(item.args) + Engine.runtimeArgs(item.kind, item.url, spoken = item.genre != null)
         val template = AppSettings.current.nameTemplate.pattern
 
         fun buildRequest() = Engine.baseRequest(ctx, item.url).apply {
@@ -154,6 +158,12 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         return try {
             val size = file.length()
             val saved = Storage.publish(ctx, file, item.kind, item.site)
+            // Audiobook/podcast: chapter index + summary as a .txt next to the audio.
+            item.notes?.let { Storage.publishText(ctx, saved.name.substringBeforeLast('.') + ".txt", it, item.kind, item.site) }
+            if (AppSettings.current.autoTags && item.genre == null && (item.kind == Kind.MP3 || item.kind == Kind.FLAC)) {
+                setProgress(workDataOf(KEY_HID to hid, KEY_PROGRESS to 100f, KEY_LINE to "Buscando datos y letra…"))
+                enrichSong(saved.uri, saved.name, item.title, item.durationSec)
+            }
             HistoryStore.update(hid) {
                 it.copy(
                     status = Status.DONE, uri = saved.uri.toString(), mime = saved.mime,
@@ -167,6 +177,32 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             fail("No se pudo guardar: ${e.message}")
         } finally {
             tmp.deleteRecursively()
+        }
+    }
+
+    /** Completes album, year, cover and lyrics from MusicBrainz/LRCLIB. Never fails the download. */
+    private fun enrichSong(uri: Uri, name: String, fallbackTitle: String, durationSec: Double?) {
+        runCatching {
+            val current = Tagger.read(applicationContext, uri)
+            val (title, artist) = MusicInfo.clean(current.title.ifBlank { fallbackTitle }, current.artist)
+            if (artist.isBlank()) return
+            val match = MusicInfo.lookup(title, artist)
+            val lyrics = MusicInfo.lyrics(match?.title ?: title, match?.artist ?: artist, durationSec?.toInt())
+            if (match == null && lyrics == null) return
+            val cover = match?.let { m ->
+                File(applicationContext.cacheDir, "cover-$hid.jpg").takeIf { MusicInfo.cover(m, it) }
+            }
+            Tagger.write(
+                applicationContext, uri, name,
+                Tags(
+                    title = match?.title ?: title,
+                    artist = match?.artist ?: artist,
+                    album = match?.album ?: current.album,
+                    year = match?.year ?: current.year,
+                ),
+                cover = null, coverFile = cover, lyrics = lyrics,
+            )
+            cover?.delete()
         }
     }
 

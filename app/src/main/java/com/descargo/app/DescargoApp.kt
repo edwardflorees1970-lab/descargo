@@ -19,6 +19,7 @@ class DescargoApp : Application() {
         super.onCreate()
         AppSettings.init(this)
         HistoryStore.init(this)
+        HistoryStore.onChange = { com.descargo.app.ui.DescargoWidget.refresh(this) }
         SubscriptionStore.init(this)
         DownloadWorker.createChannels(this)
         SubscriptionWorker.schedule(this)

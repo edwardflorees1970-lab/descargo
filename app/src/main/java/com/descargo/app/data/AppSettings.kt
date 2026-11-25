@@ -52,9 +52,45 @@ data class Settings(
     val treeUri: String = "",
     /** First-run folder question already answered (picked or skipped). */
     val folderChosen: Boolean = false,
+    // Audio quality
+    val normalize: Boolean = false,
+    /** Fill album/year/cover/lyrics from MusicBrainz + LRCLIB for songs. */
+    val autoTags: Boolean = true,
+    // One-tap: shared links download straight away with the site's preset
+    val quickShare: Boolean = false,
+    val presetYouTube: String = "Video · hasta 1080p",
+    val presetShort: String = "Video · mejor calidad",
+    val presetOther: String = "Video · mejor calidad",
 )
 
 object AppSettings {
+    /** Preset label to use for a URL's site (one-tap downloads and playlists). */
+    fun presetLabelFor(url: String): String {
+        val s = current
+        val u = url.lowercase()
+        return when {
+            "youtube.com" in u || "youtu.be" in u -> s.presetYouTube
+            listOf("tiktok.com", "instagram.com", "facebook.com", "fb.watch", "x.com", "twitter.com").any { it in u } -> s.presetShort
+            else -> s.presetOther
+        }
+    }
+
+    /** Raw preferences, for backup. */
+    fun exportMap(): Map<String, *> = prefs.all
+
+    fun importMap(ctx: Context, map: Map<String, Any?>) {
+        val e = prefs.edit()
+        for ((k, v) in map) when (v) {
+            is Boolean -> e.putBoolean(k, v)
+            is Int -> e.putInt(k, v)
+            is Long -> e.putInt(k, v.toInt())
+            is String -> e.putString(k, v)
+        }
+        // A restored folder grant would not be valid on this device: ask for the folder again.
+        e.putString("treeUri", "").putBoolean("folderChosen", false).commit()
+        initFrom(ctx)
+    }
+
     private lateinit var prefs: SharedPreferences
     private val _state = MutableStateFlow(Settings())
     val state: StateFlow<Settings> = _state
@@ -66,6 +102,10 @@ object AppSettings {
     @Synchronized
     fun init(ctx: Context) {
         if (::prefs.isInitialized) return
+        initFrom(ctx)
+    }
+
+    private fun initFrom(ctx: Context) {
         prefs = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
         val d = Settings()
         val p = prefs
@@ -94,6 +134,12 @@ object AppSettings {
             nameTemplate = p.enum("nameTemplate", d.nameTemplate),
             treeUri = p.getString("treeUri", d.treeUri) ?: "",
             folderChosen = p.getBoolean("folderChosen", d.folderChosen),
+            normalize = p.getBoolean("normalize", d.normalize),
+            autoTags = p.getBoolean("autoTags", d.autoTags),
+            quickShare = p.getBoolean("quickShare", d.quickShare),
+            presetYouTube = p.getString("presetYouTube", d.presetYouTube) ?: d.presetYouTube,
+            presetShort = p.getString("presetShort", d.presetShort) ?: d.presetShort,
+            presetOther = p.getString("presetOther", d.presetOther) ?: d.presetOther,
         )
     }
 
@@ -130,6 +176,12 @@ object AppSettings {
             .putString("nameTemplate", s.nameTemplate.name)
             .putString("treeUri", s.treeUri)
             .putBoolean("folderChosen", s.folderChosen)
+            .putBoolean("normalize", s.normalize)
+            .putBoolean("autoTags", s.autoTags)
+            .putBoolean("quickShare", s.quickShare)
+            .putString("presetYouTube", s.presetYouTube)
+            .putString("presetShort", s.presetShort)
+            .putString("presetOther", s.presetOther)
             .apply()
     }
 }

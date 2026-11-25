@@ -50,6 +50,12 @@ object SubscriptionStore {
         save()
     }
 
+    @Synchronized
+    fun reload(ctx: Context) {
+        file = File(ctx.filesDir, FILE)
+        _items.value = runCatching { parse(file.readText()) }.getOrDefault(emptyList())
+    }
+
     fun byUrl(url: String) = _items.value.firstOrNull { it.url == url }
 
     private fun save() {

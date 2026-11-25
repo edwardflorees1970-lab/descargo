@@ -23,6 +23,16 @@ La app tiene cuatro pestañas:
   - **Usar mi sesión:** inicias sesión en el Navegador y yt-dlp usa esas cookies para videos privados o con restricción de edad.
   - Canal nightly del motor.
 
+Novedades de la 1.4:
+- **Audiolibros y podcasts** (desde 15 min): se detectan solos y guardan dentro del archivo los capítulos, el autor, la serie o lista como álbum, el resumen y el género (Audiolibro o Podcast), más un `.txt` con el índice de capítulos y el resumen.
+- **Reproductor integrado:** reproduce videos y audios dentro de la app; la música sigue en segundo plano con controles en la notificación y la pantalla de bloqueo, y la Biblioteca arma la cola.
+- **Descarga en 1 toque:** al compartir un enlace baja directo con el formato del sitio (uno para YouTube, otro para TikTok, Instagram, Facebook y X, otro para los demás).
+- **Normalizar volumen** de MP3 y FLAC (EBU R128).
+- **Datos automáticos de canciones:** título, artista, álbum, año y portada (MusicBrainz), más la letra incrustada (LRCLIB).
+- **Convertir a MP3** archivos ya descargados (o sacar el audio de un video).
+- **Imágenes:** pins de Pinterest y publicaciones de Instagram o X que son foto se guardan en «Imagenes» (solo la imagen principal).
+- **Widget** de pantalla de inicio y **respaldo/restaurar** de ajustes, biblioteca y suscripciones.
+
 Novedades de la 1.3:
 - **Carpeta a elección:** la primera vez la app pregunta dónde guardar. Dentro de la carpeta elegida crea **Audio** (MP3, FLAC, audio original) y **Video**, y cada descarga va sola a la que corresponde. Al elegir carpeta ofrece mover y ordenar las descargas anteriores. Se cambia en Ajustes → Archivos.
 

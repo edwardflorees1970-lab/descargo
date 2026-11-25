@@ -26,6 +26,10 @@ import com.descargo.app.engine.Presets
 import com.descargo.app.data.Subscription
 import com.descargo.app.data.SubscriptionStore
 import com.descargo.app.engine.Tagger
+import com.descargo.app.engine.LongForm
+import com.descargo.app.engine.ImageGrab
+import com.descargo.app.player.PlayerController
+import java.io.File
 import com.descargo.app.engine.Tags
 import com.descargo.app.work.SubscriptionWorker
 import com.descargo.app.work.DownloadQueue
@@ -46,12 +50,27 @@ sealed interface UiState {
     data class Error(val message: String) : UiState
     data class Loaded(val info: MediaInfo, val inPlaylist: Boolean) : UiState
     data class PlaylistLoaded(val info: PlaylistInfo) : UiState
+    data class ImageLoaded(val image: ImageGrab.Found) : UiState
 }
 
 data class Progress(val percent: Float, val line: String, val eta: Long)
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     var screen by mutableStateOf(Screen.HOME)
+
+    // Player
+    val player = PlayerController(app)
+    var showPlayer by mutableStateOf(false)
+
+    fun play(item: HistoryItem, queue: List<HistoryItem>) {
+        player.play(item, queue.filter { it.status == com.descargo.app.data.Status.DONE })
+        if (item.kind == Kind.VIDEO) showPlayer = true
+    }
+
+    override fun onCleared() {
+        player.release()
+        super.onCleared()
+    }
 
     // Home
     var url by mutableStateOf("")
@@ -119,14 +138,91 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     is Analysis.Playlist -> {
                         checked = a.info.entries.indices.toSet()
-                        preset = Presets.default(AppSettings.current.videoHeight)
+                        preset = Presets.all.firstOrNull { it.label == AppSettings.presetLabelFor(link) }
+                            ?: Presets.default(AppSettings.current.videoHeight)
                         UiState.PlaylistLoaded(a.info)
                     }
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                UiState.Error(Engine.friendlyError(e))
+                imageFallback(link, e) ?: UiState.Error(Engine.friendlyError(e))
             }
+        }
+    }
+
+    /** Photo posts (Pinterest, Instagram, X): yt-dlp finds no video, so offer the post's image. */
+    private suspend fun imageFallback(link: String, e: Exception): UiState? {
+        val m = e.message.orEmpty()
+        val noVideo = listOf("No video", "Unsupported URL", "no formats", "There is no video", "Requested format")
+            .any { m.contains(it, ignoreCase = true) }
+        if (!noVideo) return null
+        return withContext(Dispatchers.IO) { ImageGrab.find(link) }?.let { UiState.ImageLoaded(it) }
+    }
+
+    fun downloadImage() {
+        val img = (state as? UiState.ImageLoaded)?.image ?: return
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                val dir = File(app.cacheDir, "img").apply { mkdirs() }
+                val f = ImageGrab.download(img.imageUrl, dir, img.title) ?: return@withContext null
+                try {
+                    val size = f.length()
+                    Storage.publish(app, f, Kind.IMAGE, img.site) to size
+                } finally {
+                    f.delete()
+                }
+            }
+            if (saved == null) {
+                message = "No se pudo descargar la imagen"
+                return@launch
+            }
+            val (s, size) = saved
+            HistoryStore.add(
+                listOf(
+                    HistoryItem(
+                        id = java.util.UUID.randomUUID().toString(), url = img.pageUrl, title = img.title,
+                        thumbnail = img.imageUrl, site = img.site, kind = Kind.IMAGE, optionLabel = "Imagen",
+                        args = emptyList(), status = com.descargo.app.data.Status.DONE,
+                        uri = s.uri.toString(), mime = s.mime, fileName = s.name, sizeBytes = size,
+                    )
+                )
+            )
+            message = "Imagen guardada en ${Storage.describeTarget(Kind.IMAGE)}"
+        }
+    }
+
+    /** Converts a downloaded file (video or other audio) to MP3 and adds it to the library. */
+    fun convertToMp3(item: HistoryItem, kbps: Int) {
+        val uri = item.uri ?: return
+        val app = getApplication<Application>()
+        message = "Convirtiendo a MP3 $kbps kbps…"
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val base = (item.fileName ?: item.title).substringBeforeLast('.')
+                val out = File(File(app.cacheDir, "conv").apply { mkdirs() }, "$base.mp3")
+                val err = Tagger.toMp3(app, Uri.parse(uri), item.fileName ?: "in.bin", kbps, out)
+                if (err != null) return@withContext Result.failure<Pair<Storage.Saved, Long>>(Exception(err))
+                try {
+                    Result.success(Storage.publish(app, out, Kind.MP3, item.site) to out.length())
+                } catch (e: Exception) {
+                    Result.failure(e)
+                } finally {
+                    out.delete()
+                }
+            }
+            result.onSuccess { (s, size) ->
+                HistoryStore.add(
+                    listOf(
+                        item.copy(
+                            id = java.util.UUID.randomUUID().toString(), kind = Kind.MP3,
+                            optionLabel = "MP3 $kbps kbps · convertido", uri = s.uri.toString(), mime = s.mime,
+                            fileName = s.name, sizeBytes = size, createdAt = System.currentTimeMillis(), notes = null,
+                        )
+                    )
+                )
+                message = "Listo: ${s.name}"
+            }.onFailure { message = "No se pudo convertir: ${it.message}" }
         }
     }
 
@@ -169,11 +265,67 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             args = args + Engine.clipArgs(s, e)
             label += " · ✂ ${formatDuration(s.toDouble())}–${formatDuration(e.toDouble())}"
         }
+        val spoken = info.spoken?.takeIf { opt.kind != Kind.VIDEO && !clipOn }
         DownloadQueue.enqueue(
             getApplication(),
-            listOf(DownloadQueue.Request(info.url, info.title, info.thumbnail, info.site, opt.kind, label, args)),
+            listOf(
+                DownloadQueue.Request(
+                    info.url, info.title, info.thumbnail, info.site, opt.kind, label, args,
+                    durationSec = info.durationSec, spoken = spoken,
+                    notes = spoken?.let { LongForm.notes(info, it) },
+                )
+            ),
         )
-        message = "Descarga agregada: ${opt.label.trim()}"
+        message = "Descarga agregada: ${opt.label.trim()}" + (spoken?.let { " · ${it.genre} con capítulos y resumen" } ?: "")
+    }
+
+    /** Shared link → straight download with the site's preset (no format screen). */
+    fun quickDownload(link: String) {
+        url = link
+        val presetLabel = AppSettings.presetLabelFor(link)
+        val p = Presets.all.firstOrNull { it.label == presetLabel } ?: Presets.all.first()
+        message = "Descargando como «${p.label}»…"
+        job?.cancel()
+        job = viewModelScope.launch {
+            state = UiState.Loading
+            try {
+                Engine.awaitReady()
+                when (val a = withContext(Dispatchers.IO) { Engine.analyze(getApplication(), link) }) {
+                    is Analysis.Single -> {
+                        val info = a.info
+                        val spoken = info.spoken?.takeIf { p.kind != Kind.VIDEO }
+                        DownloadQueue.enqueue(
+                            getApplication(),
+                            listOf(
+                                DownloadQueue.Request(
+                                    info.url, info.title, info.thumbnail, info.site, p.kind, p.label, p.args,
+                                    durationSec = info.durationSec, spoken = spoken,
+                                    notes = spoken?.let { LongForm.notes(info, it) },
+                                )
+                            ),
+                        )
+                        tab = AppSettings.current.openTab
+                        selected = defaultOption(info, tab)
+                        state = UiState.Loaded(info, a.inPlaylist)
+                        message = "En cola: ${info.title}"
+                    }
+                    is Analysis.Playlist -> {
+                        // A whole list needs the user to pick items: show it instead.
+                        checked = a.info.entries.indices.toSet()
+                        preset = p
+                        state = UiState.PlaylistLoaded(a.info)
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                state = UiState.Error(Engine.friendlyError(e))
+            }
+        }
+    }
+
+    /** Entry point for links shared from other apps / the clipboard tile. */
+    fun handleShared(link: String) {
+        if (AppSettings.current.quickShare) quickDownload(link) else analyzeLink(link)
     }
 
     fun toggle(i: Int) {
@@ -189,7 +341,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val pl = (state as? UiState.PlaylistLoaded)?.info ?: return
         val p = preset
         val reqs = pl.entries.filterIndexed { i, _ -> i in checked }.map { e ->
-            DownloadQueue.Request(e.url, e.title, e.thumbnail, pl.site, p.kind, p.label, p.args)
+            DownloadQueue.Request(e.url, e.title, e.thumbnail, pl.site, p.kind, p.label, p.args, durationSec = e.durationSec)
         }
         DownloadQueue.enqueue(getApplication(), reqs)
         message = "${reqs.size} descargas en cola (${AppSettings.current.maxConcurrent} a la vez)"
@@ -311,6 +463,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // Backup
+    fun exportBackup(dest: Uri?) {
+        dest ?: return
+        viewModelScope.launch {
+            val err = withContext(Dispatchers.IO) { com.descargo.app.data.Backup.export(getApplication(), dest) }
+            message = err?.let { "No se pudo exportar: $it" } ?: "Respaldo guardado"
+        }
+    }
+
+    fun importBackup(src: Uri?) {
+        src ?: return
+        viewModelScope.launch {
+            val err = withContext(Dispatchers.IO) { com.descargo.app.data.Backup.import(getApplication(), src) }
+            if (err == null) SubscriptionWorker.schedule(getApplication(), replace = true)
+            message = err?.let { "No se pudo importar: $it" }
+                ?: "Respaldo restaurado. Elige de nuevo tu carpeta de descargas."
+        }
+    }
+
     // Tag editor
     fun readTags(item: HistoryItem): Tags =
         item.uri?.let { Tagger.read(getApplication(), Uri.parse(it)) } ?: Tags(item.title, "", "")
@@ -372,7 +543,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             "youtube.com/watch", "youtube.com/shorts/", "youtu.be/", "youtube.com/playlist",
             "youtube.com/@", "youtube.com/live/", "tiktok.com/@", "vm.tiktok.com/",
             "facebook.com/watch", "facebook.com/reel", "/videos/", "fb.watch/", "facebook.com/share/",
-            "instagram.com/reel", "instagram.com/p/", "instagram.com/tv/",
+            "instagram.com/reel", "instagram.com/p/", "instagram.com/tv/", "instagram.com/stories/",
             "pinterest.", "pin.it/", "/status/", "vimeo.com/", "soundcloud.com/", "twitch.tv/",
         )
 

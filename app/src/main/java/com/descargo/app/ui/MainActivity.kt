@@ -24,6 +24,7 @@ import com.descargo.app.data.ThemeMode
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_CLIPBOARD = "analyze_clipboard"
+        const val EXTRA_OPEN_PLAYER = "open_player"
     }
 
     private val vm: MainViewModel by viewModels()
@@ -68,13 +69,18 @@ class MainActivity : ComponentActivity() {
         if (analyzeClipboardOnFocus) {
             analyzeClipboardOnFocus = false
             val link = MainViewModel.extractUrl(text?.toString())
-            if (link != null) vm.analyzeLink(link) else vm.message = "No hay ningún enlace copiado"
+            if (link != null) vm.handleShared(link) else vm.message = "No hay ningún enlace copiado"
         } else {
             vm.onClipboard(text)
         }
     }
 
     private fun handleIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_PLAYER, false) == true) {
+            vm.player.connect()
+            vm.showPlayer = vm.player.isVideo
+            return
+        }
         if (intent?.getBooleanExtra(EXTRA_CLIPBOARD, false) == true) {
             analyzeClipboardOnFocus = true
             return
@@ -82,7 +88,7 @@ class MainActivity : ComponentActivity() {
         // Links shared from YouTube / TikTok / Facebook / Pinterest open straight into analysis.
         if (intent?.action != Intent.ACTION_SEND) return
         val link = MainViewModel.extractUrl(intent.getStringExtra(Intent.EXTRA_TEXT)) ?: return
-        vm.analyzeLink(link)
+        vm.handleShared(link)
     }
 
     private fun askPermissions() {

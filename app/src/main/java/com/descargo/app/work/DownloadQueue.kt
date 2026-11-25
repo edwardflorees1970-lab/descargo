@@ -15,6 +15,8 @@ import com.descargo.app.data.HistoryStore
 import com.descargo.app.data.Settings
 import com.descargo.app.data.Status
 import com.descargo.app.engine.Kind
+import com.descargo.app.engine.LongForm
+import com.descargo.app.engine.SpokenKind
 import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
 import java.util.UUID
@@ -41,6 +43,9 @@ object DownloadQueue {
         val kind: Kind,
         val label: String,
         val args: List<Pair<String, String?>>,
+        val durationSec: Double? = null,
+        val spoken: SpokenKind? = null,
+        val notes: String? = null,
     )
 
     /** historyId -> yt-dlp process id currently running for it. */
@@ -62,7 +67,10 @@ object DownloadQueue {
                 id = UUID.randomUUID().toString(),
                 url = r.url, title = r.title, thumbnail = r.thumbnail, site = r.site,
                 kind = r.kind, optionLabel = r.label,
-                args = encode(r.args + extraArgs(r.kind, s, batch = requests.size > 1)),
+                args = encode(r.args + extraArgs(r, s, batch = requests.size > 1)),
+                durationSec = r.durationSec,
+                genre = r.spoken?.genre?.takeIf { r.kind.isAudio },
+                notes = r.notes?.takeIf { r.kind.isAudio },
             )
         }
         HistoryStore.add(items)
@@ -112,7 +120,18 @@ object DownloadQueue {
         schedule(ctx, paused, AppSettings.current)
     }
 
-    private fun extraArgs(kind: Kind, s: Settings, batch: Boolean): List<Pair<String, String?>> = buildList {
+    private fun extraArgs(r: Request, s: Settings, batch: Boolean): List<Pair<String, String?>> = buildList {
+        val kind = r.kind
+        // Audiobooks / podcasts: keep chapters, use the description as comment, author as artist,
+        // series/playlist as album and tag the genre so players file them correctly.
+        val spoken = r.spoken ?: LongForm.detect(r.title, null, r.durationSec)
+        if (spoken != null && kind.isAudio) {
+            add("--embed-chapters" to null)
+            add("--parse-metadata" to "description:(?s)(?P<meta_comment>.+)")
+            add("--parse-metadata" to "%(uploader,channel,creator|Desconocido)s:%(meta_artist)s")
+            add("--parse-metadata" to "%(series,playlist_title,title)s:%(meta_album)s")
+            add("--parse-metadata" to "%(descargo_genre|${spoken.genre})s:%(meta_genre)s")
+        }
         if (batch) {
             // Spacing requests out keeps big playlists from tripping YouTube's anti-bot check.
             add("--sleep-requests" to "1")

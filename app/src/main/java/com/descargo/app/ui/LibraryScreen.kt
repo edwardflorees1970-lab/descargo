@@ -1,6 +1,8 @@
 package com.descargo.app.ui
 
 import android.net.Uri
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,6 +63,7 @@ fun LibraryScreen(vm: MainViewModel) {
     var toDelete by remember { mutableStateOf<HistoryItem?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<HistoryItem?>(null) }
+    var converting by remember { mutableStateOf<HistoryItem?>(null) }
 
     val shown = history.asSequence()
         .filterNot { it.isPending }
@@ -68,7 +71,7 @@ fun LibraryScreen(vm: MainViewModel) {
             when (filter) {
                 Filter.ALL -> true
                 Filter.VIDEO -> it.kind == Kind.VIDEO && it.status == Status.DONE
-                Filter.AUDIO -> it.kind != Kind.VIDEO && it.status == Status.DONE
+                Filter.AUDIO -> it.kind.isAudio && it.status == Status.DONE
                 Filter.FAILED -> it.status == Status.FAILED || it.status == Status.CANCELLED
             }
         }
@@ -119,11 +122,34 @@ fun LibraryScreen(vm: MainViewModel) {
                 onDelete = { toDelete = item },
                 onRetry = { vm.retry(item) },
                 onTags = { editing = item },
+                onConvert = { converting = item },
+                onPlay = { vm.play(item, shown) },
             )
         }
     }
 
     editing?.let { item -> TagDialog(vm, item, onClose = { editing = null }) }
+
+    converting?.let { item ->
+        AlertDialog(
+            onDismissRequest = { converting = null },
+            title = { Text(if (item.kind == Kind.VIDEO) "Extraer audio a MP3" else "Convertir a MP3") },
+            text = {
+                Column {
+                    Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "Se crea un MP3 nuevo; el original no se toca.",
+                        style = MaterialTheme.typography.bodySmall, color = Muted,
+                    )
+                    listOf(320, 192, 128).forEach { k ->
+                        TextButton(onClick = { vm.convertToMp3(item, k); converting = null }) { Text("MP3 $k kbps") }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { converting = null }) { Text("Cancelar") } },
+        )
+    }
 
     toDelete?.let { item ->
         var alsoFile by remember(item.id) { mutableStateOf(item.status == Status.DONE) }
@@ -207,9 +233,11 @@ private fun LibraryRow(
     onDelete: () -> Unit,
     onRetry: () -> Unit,
     onTags: () -> Unit,
+    onConvert: () -> Unit,
+    onPlay: () -> Unit,
 ) {
     val done = item.status == Status.DONE
-    Column(Modifier.fillMaxWidth().clickable(enabled = done, onClick = onOpen).padding(horizontal = 16.dp, vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth().clickable(enabled = done, onClick = if (item.kind == Kind.IMAGE) onOpen else onPlay).padding(horizontal = 16.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Thumb(item.thumbnail, Modifier.width(112.dp).aspectRatio(16f / 9f), fallback = item.kind.title)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -223,11 +251,13 @@ private fun LibraryRow(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.End) {
             if (done) {
-                TextButton(onClick = onOpen) { Text("Abrir") }
+                if (item.kind == Kind.IMAGE) TextButton(onClick = onOpen) { Text("Abrir") }
+                else TextButton(onClick = onPlay) { Text("▶ Reproducir") }
                 TextButton(onClick = onShare) { Text("Compartir") }
-                if (item.kind != Kind.VIDEO) TextButton(onClick = onTags) { Text("Etiquetas") }
+                if (item.kind.isAudio) TextButton(onClick = onTags) { Text("Etiquetas") }
+                if (item.kind != Kind.MP3 && item.kind != Kind.IMAGE) TextButton(onClick = onConvert) { Text("MP3") }
             } else {
                 TextButton(onClick = onRetry) { Text("Reintentar") }
             }

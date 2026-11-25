@@ -9,6 +9,15 @@ enum class Kind(val title: String) {
     MP3("MP3"),
     FLAC("FLAC"),
     ORIGINAL("Audio original"),
+    IMAGE("Imagen"),
+    ;
+
+    val isAudio get() = this == MP3 || this == FLAC || this == ORIGINAL
+
+    companion object {
+        /** Format tabs shown when analyzing a video. */
+        val formatTabs = listOf(VIDEO, MP3, FLAC, ORIGINAL)
+    }
 }
 
 /** One downloadable choice. [args] are yt-dlp options: flag to value (null = flag without value). */
@@ -85,7 +94,60 @@ data class MediaInfo(
     val site: String,
     val options: Map<Kind, List<DownloadOption>>,
     val bestAudioKbps: Int?,
-)
+    val description: String? = null,
+    val chapters: List<Chapter> = emptyList(),
+) {
+    /** Audiobook / podcast / long talk: gets chapters, summary, author and a .txt index. */
+    val spoken: SpokenKind? get() = LongForm.detect(title, description, durationSec)
+}
+
+data class Chapter(val start: Double, val title: String)
+
+enum class SpokenKind(val genre: String) { AUDIOBOOK("Audiolibro"), PODCAST("Podcast") }
+
+object LongForm {
+    const val MIN_SECONDS = 15 * 60
+
+    private val BOOK = Regex("""audio\s?libro|audiobook|libro completo|cap[ií]tulo\s*\d|narrad[oa] por|unabridged""", RegexOption.IGNORE_CASE)
+    private val PODCAST = Regex("""podcast|episodio|episode|\bep\.?\s*\d|entrevista|interview|charla|programa""", RegexOption.IGNORE_CASE)
+    private val MUSIC = Regex("""\bmix\b|mixtape|full album|[áa]lbum completo|playlist|lofi|hits|enganchados|dj set|live set|\bbeats?\b""", RegexOption.IGNORE_CASE)
+
+    /** Long (≥15 min) spoken content, guessed from title/description; null for music mixes or short media. */
+    fun detect(title: String, description: String?, durationSec: Double?): SpokenKind? {
+        if (durationSec == null || durationSec < MIN_SECONDS) return null
+        val text = title + "\n" + (description ?: "").take(600)
+        return when {
+            BOOK.containsMatchIn(text) -> SpokenKind.AUDIOBOOK
+            MUSIC.containsMatchIn(title) -> null
+            // 15–20 min without podcast words could be a long song/video; from 20 min assume spoken.
+            PODCAST.containsMatchIn(text) || durationSec >= 20 * 60 -> SpokenKind.PODCAST
+            else -> null
+        }
+    }
+
+    /** Plain-text index saved next to the audio: author, duration, chapters and summary. */
+    fun notes(info: MediaInfo, kind: SpokenKind): String = buildString {
+        appendLine(info.title)
+        appendLine("${kind.genre} · ${info.uploader ?: "Autor desconocido"}")
+        info.durationSec?.let { appendLine("Duración: ${clock(it)}") }
+        appendLine("Origen: ${info.url}")
+        if (info.chapters.isNotEmpty()) {
+            appendLine()
+            appendLine("CAPÍTULOS")
+            info.chapters.forEach { appendLine("${clock(it.start)}  ${it.title}") }
+        }
+        if (!info.description.isNullOrBlank()) {
+            appendLine()
+            appendLine("RESUMEN")
+            appendLine(info.description.trim())
+        }
+    }
+
+    fun clock(sec: Double): String {
+        val s = sec.toLong()
+        return String.format(java.util.Locale.US, "%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60)
+    }
+}
 
 private data class Fmt(
     val id: String,
@@ -165,6 +227,13 @@ object FormatPlanner {
             site = site,
             options = options,
             bestAudioKbps = bestAudioKbps,
+            description = j.optStringOrNull("description"),
+            chapters = j.optJSONArray("chapters")?.let { arr ->
+                (0 until arr.length()).mapNotNull { i ->
+                    val c = arr.optJSONObject(i) ?: return@mapNotNull null
+                    Chapter(c.optDouble("start_time", 0.0), c.optString("title").ifBlank { "Capítulo ${i + 1}" })
+                }
+            }.orEmpty(),
         )
     }
 

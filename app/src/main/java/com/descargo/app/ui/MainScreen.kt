@@ -9,6 +9,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Column
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
@@ -29,6 +30,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -83,8 +86,11 @@ fun MainScreen(vm: MainViewModel) {
     }
 
     // One WebView for the whole session so the browser keeps its page across tab switches.
-    val webView = rememberBrowser(vm)
-    BackHandler(enabled = vm.screen == Screen.BROWSER && vm.browserCanGoBack) { webView.goBack() }
+    // The WebView is heavy: create it the first time the Navegador tab opens, then keep it.
+    var browserOpened by remember { mutableStateOf(false) }
+    if (vm.screen == Screen.BROWSER) browserOpened = true
+    val webView = if (browserOpened) rememberBrowser(vm) else null
+    BackHandler(enabled = vm.screen == Screen.BROWSER && vm.browserCanGoBack) { webView?.goBack() }
     BackHandler(enabled = vm.screen != Screen.HOME && !(vm.screen == Screen.BROWSER && vm.browserCanGoBack)) {
         vm.screen = Screen.HOME
     }
@@ -92,6 +98,8 @@ fun MainScreen(vm: MainViewModel) {
     Scaffold(
         
         bottomBar = {
+          Column {
+            MiniPlayer(vm.player, onExpand = { vm.showPlayer = true })
             NavigationBar(containerColor = CardBg) {
                 Screen.entries.forEach { s ->
                     val icon = when (s) {
@@ -115,17 +123,19 @@ fun MainScreen(vm: MainViewModel) {
                     )
                 }
             }
+          }
         },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (vm.screen) {
                 Screen.HOME -> HomeScreen(vm)
-                Screen.BROWSER -> BrowserScreen(vm, webView)
+                Screen.BROWSER -> webView?.let { BrowserScreen(vm, it) }
                 Screen.LIBRARY -> LibraryScreen(vm)
                 Screen.SETTINGS -> SettingsScreen(vm)
             }
         }
     }
+    if (vm.showPlayer && vm.player.hasMedia) FullPlayer(vm.player, onClose = { vm.showPlayer = false })
 }
 
 @SuppressLint("SetJavaScriptEnabled")

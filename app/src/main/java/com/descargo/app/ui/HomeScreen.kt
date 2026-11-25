@@ -129,6 +129,15 @@ fun HomeScreen(vm: MainViewModel) {
                     ) { Text("Este video es parte de una lista · Ver lista completa") }
                 }
                 item { KindTabs(vm.tab, vm::selectTab) }
+                s.info.spoken?.let { sp ->
+                    if (vm.tab != Kind.VIDEO) item {
+                        Note(
+                            "🎧 ${sp.genre} detectado (${formatDuration(s.info.durationSec ?: 0.0)}): se guardan " +
+                                (if (s.info.chapters.isNotEmpty()) "${s.info.chapters.size} capítulos, " else "los capítulos, ") +
+                                "el resumen y el autor dentro del archivo, más un .txt con el índice."
+                        )
+                    }
+                }
                 if (vm.tab == Kind.FLAC) item { Note(flacNote(s.info)) }
                 if (vm.tab == Kind.ORIGINAL) item {
                     Note("La pista tal cual la entrega el sitio: máxima calidad real, sin recodificar.")
@@ -140,6 +149,22 @@ fun HomeScreen(vm: MainViewModel) {
                 item { PrimaryButton(if (vm.clipOn) "Descargar fragmento" else "Descargar", enabled = vm.selected != null, onClick = vm::download) }
             }
             is UiState.PlaylistLoaded -> playlist(vm, s.info)
+            is UiState.ImageLoaded -> {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = CardBg),
+                    ) {
+                        Thumb(s.image.imageUrl, Modifier.fillMaxWidth().aspectRatio(1f))
+                        Column(Modifier.padding(12.dp)) {
+                            Text(s.image.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("Imagen · ${s.image.site}", style = MaterialTheme.typography.bodySmall, color = Muted)
+                        }
+                    }
+                }
+                item { Note("Esta publicación es una foto. Se guarda en la carpeta «Imagenes» (solo la imagen principal; los carruseles no se pueden).") }
+                item { PrimaryButton("Descargar imagen", onClick = vm::downloadImage) }
+            }
         }
 
         val recent = history.firstOrNull { it.status == Status.DONE }
@@ -332,11 +357,11 @@ private fun MediaHeader(info: MediaInfo) {
 @Composable
 private fun KindTabs(current: Kind, onSelect: (Kind) -> Unit) {
     PrimaryScrollableTabRow(
-        selectedTabIndex = Kind.entries.indexOf(current),
+        selectedTabIndex = Kind.formatTabs.indexOf(current).coerceAtLeast(0),
         edgePadding = 16.dp,
         containerColor = Color.Transparent,
     ) {
-        Kind.entries.forEach { k ->
+        Kind.formatTabs.forEach { k ->
             Tab(selected = k == current, onClick = { onSelect(k) }, text = { Text(k.title) })
         }
     }

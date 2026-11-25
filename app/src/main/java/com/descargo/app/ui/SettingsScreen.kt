@@ -34,6 +34,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.text.style.TextOverflow
 import com.descargo.app.data.Cookies
+import com.descargo.app.engine.Presets
 import com.descargo.app.data.FolderMode
 import com.descargo.app.data.NameTemplate
 import com.descargo.app.data.ThemeMode
@@ -48,6 +49,9 @@ fun SettingsScreen(vm: MainViewModel) {
     var subLangs by remember(s.subLangs) { mutableStateOf(s.subLangs) }
     val sites = remember(vm.screen) { Cookies.loggedInSites() }
     val subs by vm.subscriptions.collectAsState()
+    val presetChoices = remember { Presets.all.map { it.label to it.label } }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { vm.exportBackup(it) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { vm.importBackup(it) }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { vm.onFolderPicked(it) }
     var folder by remember(s.folderName) { mutableStateOf(s.folderName) }
 
@@ -68,9 +72,40 @@ fun SettingsScreen(vm: MainViewModel) {
             }
         }
         item {
-            Choice("Pestaña al analizar", s.openTab, Kind.entries.map { it to it.title }) { v ->
+            Choice("Pestaña al analizar", s.openTab, Kind.formatTabs.map { it to it.title }) { v ->
                 vm.updateSettings { it.copy(openTab = v) }
             }
+        }
+
+        item { Section("Descarga en 1 toque") }
+        item {
+            Toggle(
+                "Descargar al compartir", "Al compartir un enlace a Descargo baja directo con el formato del sitio, sin elegir",
+                s.quickShare,
+            ) { v -> vm.updateSettings { it.copy(quickShare = v) } }
+        }
+        item {
+            Choice("Formato para YouTube", s.presetYouTube, presetChoices) { v -> vm.updateSettings { it.copy(presetYouTube = v) } }
+        }
+        item {
+            Choice("TikTok, Instagram, Facebook y X", s.presetShort, presetChoices) { v -> vm.updateSettings { it.copy(presetShort = v) } }
+        }
+        item {
+            Choice("Otros sitios", s.presetOther, presetChoices) { v -> vm.updateSettings { it.copy(presetOther = v) } }
+        }
+
+        item { Section("Calidad del audio") }
+        item {
+            Toggle("Normalizar volumen", "MP3 y FLAC suenan al mismo nivel (EBU R128); ideal para playlists", s.normalize) { v ->
+                vm.updateSettings { it.copy(normalize = v) }
+            }
+        }
+        item {
+            Toggle(
+                "Completar datos de canciones",
+                "Busca álbum, año, portada (MusicBrainz) y letra (LRCLIB) para MP3/FLAC de música",
+                s.autoTags,
+            ) { v -> vm.updateSettings { it.copy(autoTags = v) } }
         }
 
         item { Section("Descargas") }
@@ -245,6 +280,19 @@ fun SettingsScreen(vm: MainViewModel) {
             )
         }
         item { TextButton(onClick = vm::clearSession, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Cerrar todas las sesiones") } }
+
+        item { Section("Respaldo") }
+        item {
+            Note("Guarda o restaura en un archivo tus ajustes, la biblioteca (lista) y las suscripciones. Los archivos multimedia no se copian.")
+        }
+        item {
+            Row(Modifier.padding(horizontal = 8.dp)) {
+                TextButton(onClick = { exportLauncher.launch("descargo-respaldo.json") }) { Text("Exportar respaldo") }
+                TextButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }) {
+                    Text("Importar")
+                }
+            }
+        }
 
         item { Section("Motor") }
         item {

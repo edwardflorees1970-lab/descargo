@@ -27,6 +27,11 @@ data class HistoryItem(
     val fileName: String? = null,
     val sizeBytes: Long? = null,
     val error: String? = null,
+    val durationSec: Double? = null,
+    /** "Audiolibro" / "Podcast" for long spoken content, else null. */
+    val genre: String? = null,
+    /** Text index (chapters + summary) saved next to spoken audio. */
+    val notes: String? = null,
 ) {
     val isActive get() = status == Status.QUEUED || status == Status.RUNNING
 
@@ -53,6 +58,17 @@ object HistoryStore {
         _items.value = loaded.map { if (it.status == Status.RUNNING) it.copy(status = Status.QUEUED) else it }
     }
 
+    /** Called after each change (used to refresh the home-screen widget). */
+    @Volatile var onChange: (() -> Unit)? = null
+
+    @Synchronized
+    fun reload(ctx: Context) {
+        file = File(ctx.filesDir, FILE)
+        _items.value = runCatching { parse(file.readText()) }.getOrDefault(emptyList())
+            .map { if (it.isActive) it.copy(status = Status.FAILED, error = "Interrumpida por la restauración") else it }
+        save()
+    }
+
     fun get(id: String): HistoryItem? = _items.value.firstOrNull { it.id == id }
 
     @Synchronized
@@ -75,6 +91,7 @@ object HistoryStore {
     }
 
     private fun save() {
+        onChange?.let { cb -> runCatching { cb() } }
         val snapshot = _items.value
         io.execute {
             runCatching {
@@ -96,6 +113,8 @@ object HistoryStore {
                 put("createdAt", i.createdAt); put("uri", i.uri ?: JSONObject.NULL)
                 put("mime", i.mime ?: JSONObject.NULL); put("fileName", i.fileName ?: JSONObject.NULL)
                 put("sizeBytes", i.sizeBytes ?: JSONObject.NULL); put("error", i.error ?: JSONObject.NULL)
+                put("durationSec", i.durationSec ?: JSONObject.NULL); put("genre", i.genre ?: JSONObject.NULL)
+                put("notes", i.notes ?: JSONObject.NULL)
             })
         }
         return arr.toString()
@@ -123,6 +142,9 @@ object HistoryStore {
                     fileName = o.str("fileName"),
                     sizeBytes = if (o.isNull("sizeBytes")) null else o.optLong("sizeBytes"),
                     error = o.str("error"),
+                    durationSec = if (!o.has("durationSec") || o.isNull("durationSec")) null else o.optDouble("durationSec"),
+                    genre = o.str("genre"),
+                    notes = o.str("notes"),
                 )
             }.getOrNull()
         }
