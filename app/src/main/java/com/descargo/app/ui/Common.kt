@@ -33,6 +33,27 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.ui.composed
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -56,12 +77,12 @@ private val DarkColors = darkColorScheme(
     onPrimary = Color.White,
     secondaryContainer = Color(0xFF3A2224),
     onSecondaryContainer = Color.White,
-    background = Color(0xFF111316),
-    surface = Color(0xFF111316),
+    background = Color(0xFF0F1114),
+    surface = Color(0xFF0F1114),
     onSurfaceVariant = Color(0xFF9AA0A6),
     surfaceVariant = Color(0xFF1C1F24),
-    surfaceContainer = Color(0xFF1C1F24),
-    surfaceContainerHigh = Color(0xFF202328),
+    surfaceContainer = Color(0xFF181B20),
+    surfaceContainerHigh = Color(0xFF1F2329),
     surfaceContainerHighest = Color(0xFF23272D),
     outlineVariant = Color(0xFF2A2E35),
 )
@@ -95,7 +116,54 @@ fun DescargoTheme(mode: ThemeMode = ThemeMode.DARK, dynamic: Boolean = false, co
         dark -> DarkColors
         else -> LightColors
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialTheme(colorScheme = scheme, typography = AppType, shapes = AppShapes, content = content)
+}
+
+private val AppType = Typography().let { t ->
+    t.copy(
+        headlineMedium = t.headlineMedium.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp),
+        titleLarge = t.titleLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp),
+        titleMedium = t.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        labelLarge = t.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
+    )
+}
+
+private val AppShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+)
+
+/** Coral → red → berry, same as the launcher icon. */
+val BrandGradient = Brush.linearGradient(listOf(Color(0xFFFF7A59), Color(0xFFE5484D), Color(0xFF9B1B5A)))
+
+/** The app mark (arrow dropping into a tray on the brand gradient), drawn so it scales crisply. */
+@Composable
+fun BrandMark(size: Dp, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(BrandGradient)) {
+        val u = this.size.minDimension / 108f
+        val arrow = Path().apply {
+            moveTo(54 * u, 31 * u); lineTo(54 * u, 59 * u)
+            moveTo(42 * u, 48 * u); lineTo(54 * u, 60 * u); lineTo(66 * u, 48 * u)
+        }
+        val tray = Path().apply {
+            moveTo(35 * u, 63 * u); lineTo(35 * u, 69 * u)
+            quadraticTo(35 * u, 77 * u, 43 * u, 77 * u); lineTo(65 * u, 77 * u)
+            quadraticTo(73 * u, 77 * u, 73 * u, 69 * u); lineTo(73 * u, 63 * u)
+        }
+        val st = { w: Float -> Stroke(width = w * u, cap = StrokeCap.Round, join = StrokeJoin.Round) }
+        drawPath(arrow, Color.White, style = st(8f))
+        drawPath(tray, Color.White, style = st(7f))
+    }
+}
+
+/** Slight shrink while pressed: makes cards and buttons feel tactile. */
+fun Modifier.pressScale(source: MutableInteractionSource): Modifier = composed {
+    val pressed by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "press")
+    graphicsLayer { scaleX = scale; scaleY = scale }
 }
 
 /** Thumbnails are downsampled to [MAX_W] px wide and kept in a small in-memory LRU. */
@@ -130,10 +198,14 @@ fun Thumb(url: String?, modifier: Modifier, fallback: String = "") {
     val img by produceState<ImageBitmap?>(null, url) {
         value = url?.let { withContext(Dispatchers.IO) { ImageCache.load(it) } }
     }
-    Box(modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
-        val i = img
-        if (i != null) Image(i, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-        else if (fallback.isNotEmpty()) Text(fallback, color = Muted, fontSize = 12.sp)
+    Box(modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest), contentAlignment = Alignment.Center) {
+        // Fade the picture in once it arrives instead of popping.
+        Crossfade(img, animationSpec = tween(320), label = "thumb", modifier = Modifier.matchParentSize()) { i ->
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (i != null) Image(i, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                else if (fallback.isNotEmpty()) Text(fallback, color = Muted, fontSize = 12.sp)
+            }
+        }
     }
 }
 

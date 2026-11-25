@@ -16,6 +16,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
@@ -146,12 +153,26 @@ fun MainScreen(vm: MainViewModel) {
         },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
-            when (vm.screen) {
-                Screen.HOME -> HomeScreen(vm)
-                Screen.BROWSER -> webView?.let { BrowserScreen(vm, it) }
-                Screen.LIBRARY -> LibraryScreen(vm)
-                Screen.SETTINGS -> SettingsScreen(vm)
+            // Tabs slide/fade toward the tab tapped. The browser stays outside the animation:
+            // its single WebView can't be shown twice while two screens cross-fade.
+            val tab = vm.screen.takeIf { it != Screen.BROWSER }
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    val dir = if ((targetState?.ordinal ?: 0) >= (initialState?.ordinal ?: 0)) 1 else -1
+                    (fadeIn(tween(220, delayMillis = 60)) + slideInHorizontally(tween(260)) { it / 12 * dir }) togetherWith
+                        (fadeOut(tween(140)) + slideOutHorizontally(tween(260)) { -it / 12 * dir })
+                },
+                label = "tabs",
+            ) { s ->
+                when (s) {
+                    Screen.HOME -> HomeScreen(vm)
+                    Screen.LIBRARY -> LibraryScreen(vm)
+                    Screen.SETTINGS -> SettingsScreen(vm)
+                    else -> Box(Modifier.fillMaxSize())
+                }
             }
+            if (vm.screen == Screen.BROWSER) webView?.let { BrowserScreen(vm, it) }
         }
     }
     if (vm.showPlayer && vm.player.hasMedia) FullPlayer(vm.player, onClose = { vm.showPlayer = false })

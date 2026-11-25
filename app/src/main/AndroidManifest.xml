@@ -27,6 +27,7 @@
 
         <activity
             android:name=".ui.MainActivity"
+            android:theme="@style/Theme.Descargo.Starting"
             android:exported="true"
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">

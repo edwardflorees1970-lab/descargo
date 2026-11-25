@@ -7,6 +7,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.view.animation.DecelerateInterpolator
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import androidx.activity.ComponentActivity
@@ -34,7 +36,17 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        // Splash leaves by growing and fading instead of cutting away.
+        splash.setOnExitAnimationListener { v ->
+            runCatching {
+                v.iconView.animate().scaleX(1.35f).scaleY(1.35f).setDuration(260).start()
+                v.view.animate().alpha(0f).setDuration(280)
+                    .setInterpolator(DecelerateInterpolator())
+                    .withEndAction { v.remove() }.start()
+            }.onFailure { v.remove() }
+        }
         enableEdgeToEdge()
         askPermissions()
         if (savedInstanceState == null) handleIntent(intent)

@@ -53,6 +53,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ripple
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.descargo.app.data.HistoryItem
 import com.descargo.app.data.Status
@@ -98,12 +121,14 @@ fun HomeScreen(vm: MainViewModel) {
             }
             val shown = active.sortedBy { it.status.ordinal }.take(MAX_ACTIVE_SHOWN)
             items(shown, key = { it.id }) { item ->
-                ActiveRow(
-                    item, progress[item.id],
-                    onCancel = { vm.cancel(item.id) },
-                    onPause = { vm.pause(item.id) },
-                    onResume = { vm.resume(item.id) },
-                )
+                Box(Modifier.animateItem()) {
+                    ActiveRow(
+                        item, progress[item.id],
+                        onCancel = { vm.cancel(item.id) },
+                        onPause = { vm.pause(item.id) },
+                        onResume = { vm.resume(item.id) },
+                    )
+                }
             }
             if (active.size > shown.size) item {
                 Note("…y ${active.size - shown.size} más en cola")
@@ -113,9 +138,7 @@ fun HomeScreen(vm: MainViewModel) {
         when (val s = vm.state) {
             UiState.Idle -> item { Hint() }
             UiState.Loading -> item {
-                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Primary)
-                }
+                LoadingCard()
             }
             is UiState.Error -> item {
                 Text(s.message, color = Primary, modifier = Modifier.padding(horizontal = 16.dp))
@@ -143,7 +166,7 @@ fun HomeScreen(vm: MainViewModel) {
                     Note("La pista tal cual la entrega el sitio: máxima calidad real, sin recodificar.")
                 }
                 items(s.info.options[vm.tab].orEmpty(), key = { it.label + it.args.hashCode() }) { opt ->
-                    OptionRow(opt, selected = vm.selected == opt) { vm.selected = opt }
+                    Box(Modifier.animateItem()) { OptionRow(opt, selected = vm.selected == opt) { vm.selected = opt } }
                 }
                 if (s.info.durationSec != null) item { ClipBox(vm) }
                 item { PrimaryButton(if (vm.clipOn) "Descargar fragmento" else "Descargar", enabled = vm.selected != null, onClick = vm::download) }
@@ -256,15 +279,53 @@ private fun androidx.compose.foundation.lazy.LazyListScope.playlist(vm: MainView
 
 @Composable
 private fun Header(engine: EngineState) {
-    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
-        Text("Descargo", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        val status = when (engine) {
-            EngineState.Starting -> "Preparando motor… (solo la primera vez tarda)"
-            is EngineState.Updating -> "Actualizando motor…"
-            is EngineState.Ready -> "Motor yt-dlp ${engine.version ?: ""}"
-            is EngineState.Failed -> "Error del motor: ${engine.message}"
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BrandMark(44.dp)
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text("Descargo", style = MaterialTheme.typography.headlineMedium)
+            val (status, color) = when (engine) {
+                EngineState.Starting -> "Preparando motor… (solo la primera vez)" to Warn
+                is EngineState.Updating -> "Actualizando motor…" to Warn
+                is EngineState.Ready -> "Listo · yt-dlp ${engine.version ?: ""}" to Color(0xFF3DD68C)
+                is EngineState.Failed -> "Error del motor: ${engine.message}" to Accent
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Pulses while the engine is busy, steady when ready.
+                val busy = engine !is EngineState.Ready && engine !is EngineState.Failed
+                val pulse = rememberInfiniteTransition(label = "dot")
+                val a by pulse.animateFloat(
+                    initialValue = 1f, targetValue = if (busy) 0.25f else 1f,
+                    animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "dotA",
+                )
+                Box(Modifier.size(7.dp).clip(CircleShape).background(color.copy(alpha = a)))
+                Spacer(Modifier.width(6.dp))
+                Text(status, style = MaterialTheme.typography.bodySmall, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
-        Text(status, style = MaterialTheme.typography.bodySmall, color = Muted)
+    }
+}
+
+/** Skeleton of the result card that shimmers while yt-dlp reads the page. */
+@Composable
+private fun LoadingCard() {
+    val t = rememberInfiniteTransition(label = "shimmer")
+    val x by t.animateFloat(-1f, 2f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "x")
+    val base = MaterialTheme.colorScheme.surfaceContainerHighest
+    val shine = Brush.linearGradient(
+        listOf(base, base.copy(alpha = 0.35f), base),
+        start = Offset(x * 800f, 0f),
+        end = Offset(x * 800f + 400f, 200f),
+    )
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(MaterialTheme.shapes.large).background(CardBg)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(shine))
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.fillMaxWidth(0.85f).height(14.dp).clip(CircleShape).background(shine))
+            Box(Modifier.fillMaxWidth(0.5f).height(10.dp).clip(CircleShape).background(shine))
+        }
     }
 }
 
@@ -287,12 +348,16 @@ private fun ClipboardCard(link: String, onUse: () -> Unit, onDismiss: () -> Unit
 @Composable
 private fun UrlBox(vm: MainViewModel) {
     val clipboard = LocalClipboardManager.current
-    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        Modifier.padding(horizontal = 16.dp).clip(MaterialTheme.shapes.large).background(CardBg).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         OutlinedTextField(
             value = vm.url,
             onValueChange = { vm.url = it },
             placeholder = { Text("Pega el enlace del video, lista o canal") },
             singleLine = true,
+            shape = MaterialTheme.shapes.medium,
             modifier = Modifier.fillMaxWidth(),
             trailingIcon = {
                 TextButton(onClick = {
@@ -300,22 +365,43 @@ private fun UrlBox(vm: MainViewModel) {
                 }) { Text("Pegar") }
             },
         )
-        Button(
+        val loading = vm.state == UiState.Loading
+        GradientButton(
+            if (loading) "Analizando…" else "Buscar formatos",
+            enabled = !loading,
+            loading = loading,
             onClick = { vm.analyze() },
-            enabled = vm.state != UiState.Loading,
-            colors = ButtonDefaults.buttonColors(containerColor = Primary),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Buscar formatos") }
+        )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Hint() {
-    Note(
-        "YouTube · TikTok · Facebook · Pinterest · Instagram y más de mil sitios.\n" +
-            "Funciona con videos, listas de reproducción y canales.\n" +
-            "También: «Compartir → Descargo» desde otras apps, o la pestaña Navegador."
-    )
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Funciona con", style = MaterialTheme.typography.labelLarge, color = Muted)
+        val sites = listOf(
+            "YouTube" to Color(0xFFFF3B30), "TikTok" to Color(0xFF25F4EE), "Facebook" to Color(0xFF1877F2),
+            "Pinterest" to Color(0xFFE60023), "Instagram" to Color(0xFFD62976), "X" to Color(0xFF9AA0A6),
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            sites.forEach { (name, c) ->
+                Row(
+                    Modifier.clip(CircleShape).background(c.copy(alpha = 0.14f)).padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(c))
+                    Spacer(Modifier.width(6.dp))
+                    Text(name, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            Text("+1000 sitios", style = MaterialTheme.typography.labelMedium, color = Muted, modifier = Modifier.padding(vertical = 6.dp))
+        }
+        Text(
+            "Videos, listas y canales. También «Compartir → Descargo» desde otras apps, o la pestaña Navegador.",
+            style = MaterialTheme.typography.bodySmall, color = Muted,
+        )
+    }
 }
 
 @Composable
@@ -325,12 +411,32 @@ fun Note(text: String) {
 
 @Composable
 fun PrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        colors = ButtonDefaults.buttonColors(containerColor = Primary),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(52.dp),
-    ) { Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+    Box(Modifier.padding(horizontal = 16.dp)) { GradientButton(text, enabled = enabled, height = 54.dp, onClick = onClick) }
+}
+
+/** Pill button on the brand gradient; shrinks a bit when pressed. */
+@Composable
+fun GradientButton(
+    text: String, enabled: Boolean = true, loading: Boolean = false, height: Dp = 50.dp, onClick: () -> Unit,
+) {
+    val src = remember { MutableInteractionSource() }
+    val alpha by animateFloatAsState(if (enabled || loading) 1f else 0.4f, label = "btnA")
+    Box(
+        Modifier.fillMaxWidth().height(height).pressScale(src).clip(CircleShape)
+            .background(BrandGradient, alpha = alpha)
+            .clickable(interactionSource = src, indication = ripple(color = Color.White), enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AnimatedVisibility(loading) {
+                Row {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                }
+            }
+            Text(text, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
 }
 
 private fun flacNote(info: MediaInfo): String {
@@ -343,6 +449,7 @@ private fun flacNote(info: MediaInfo): String {
 private fun MediaHeader(info: MediaInfo) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = CardBg),
     ) {
         Thumb(info.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
@@ -369,14 +476,19 @@ private fun KindTabs(current: Kind, onSelect: (Kind) -> Unit) {
 
 @Composable
 private fun OptionRow(opt: DownloadOption, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (selected) Primary.copy(alpha = 0.16f) else CardBg, tween(220), label = "optBg")
+    val edge by animateColorAsState(if (selected) Primary else Color.Transparent, tween(220), label = "optEdge")
+    val src = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Primary.copy(alpha = 0.14f) else CardBg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .pressScale(src)
+            .clip(MaterialTheme.shapes.medium)
+            .background(bg)
+            .border(1.5.dp, edge, MaterialTheme.shapes.medium)
+            .clickable(interactionSource = src, indication = ripple(), onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = onClick)
@@ -394,8 +506,8 @@ private fun OptionRow(opt: DownloadOption, selected: Boolean, onClick: () -> Uni
 @Composable
 private fun ClipBox(vm: MainViewModel) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).background(CardBg)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(MaterialTheme.shapes.medium).background(CardBg)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -404,7 +516,8 @@ private fun ClipBox(vm: MainViewModel) {
             }
             Switch(checked = vm.clipOn, onCheckedChange = { vm.clipOn = it })
         }
-        if (vm.clipOn) {
+        AnimatedVisibility(vm.clipOn, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+          Column {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
                 OutlinedTextField(
                     value = vm.clipStart, onValueChange = { vm.clipStart = it }, singleLine = true,
@@ -421,15 +534,19 @@ private fun ClipBox(vm: MainViewModel) {
                 "Formato min:seg o h:min:seg. El corte es exacto pero tarda un poco más (se recodifica en los bordes).",
                 style = MaterialTheme.typography.bodySmall, color = Muted, modifier = Modifier.padding(top = 4.dp),
             )
+          }
         }
     }
 }
 
 @Composable
 private fun ActiveRow(item: HistoryItem, p: Progress?, onCancel: () -> Unit, onPause: () -> Unit, onResume: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(MaterialTheme.shapes.medium).background(CardBg)
+            .padding(start = 10.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Thumb(item.thumbnail, Modifier.size(width = 64.dp, height = 36.dp))
+            Thumb(item.thumbnail, Modifier.size(width = 72.dp, height = 40.dp))
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                 Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                 val status = when {
@@ -444,11 +561,15 @@ private fun ActiveRow(item: HistoryItem, p: Progress?, onCancel: () -> Unit, onP
             else TextButton(onClick = onPause) { Text("Pausar") }
             TextButton(onClick = onCancel) { Text("✕", color = Muted) }
         }
-        if (item.status == Status.RUNNING) {
-            val pct = p?.percent ?: 0f
-            if (pct > 0f) LinearProgressIndicator(progress = { pct / 100f }, color = Primary, modifier = Modifier.fillMaxWidth())
-            else LinearProgressIndicator(color = Primary, modifier = Modifier.fillMaxWidth())
+        AnimatedVisibility(item.status == Status.RUNNING) {
+            val target = (p?.percent ?: 0f) / 100f
+            val pct by animateFloatAsState(target, tween(450), label = "dl")
+            val mod = Modifier.fillMaxWidth().padding(top = 8.dp, end = 6.dp).height(6.dp).clip(CircleShape)
+            if (target > 0f) LinearProgressIndicator(
+                progress = { pct }, color = Primary, trackColor = Divider, modifier = mod,
+                gapSize = 0.dp, drawStopIndicator = {},
+            )
+            else LinearProgressIndicator(color = Primary, trackColor = Divider, modifier = mod)
         }
-        HorizontalDivider(Modifier.padding(top = 8.dp), color = Divider)
     }
 }

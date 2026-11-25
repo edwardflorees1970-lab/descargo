@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -57,7 +58,7 @@ fun SettingsScreen(vm: MainViewModel) {
     var folder by remember(s.folderName) { mutableStateOf(s.folderName) }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item { Text("Ajustes", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp)) }
+        item { Text("Ajustes", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(16.dp)) }
 
         item { Section("Formato predeterminado") }
         item {

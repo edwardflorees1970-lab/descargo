@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -84,7 +85,7 @@ fun LibraryScreen(vm: MainViewModel) {
         item {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Biblioteca", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Text("Biblioteca", style = MaterialTheme.typography.headlineMedium)
                     Text(
                         history.count { it.status == Status.DONE }.let { n -> "$n ${if (n == 1) "archivo" else "archivos"}" } +
                             " · ${formatSize(totalBytes)}",
@@ -115,6 +116,7 @@ fun LibraryScreen(vm: MainViewModel) {
             Note(if (history.isEmpty()) "Aún no hay descargas. Pega un enlace en Inicio o usa el Navegador." else "Nada coincide con el filtro.")
         }
         items(shown, key = { it.id }) { item ->
+          Box(Modifier.animateItem()) {
             LibraryRow(
                 item,
                 onOpen = { if (item.uri != null) openFile(ctx, Uri.parse(item.uri), item.mime ?: "*/*") },
@@ -125,6 +127,7 @@ fun LibraryScreen(vm: MainViewModel) {
                 onConvert = { converting = item },
                 onPlay = { vm.play(item, shown) },
             )
+          }
         }
     }
 
